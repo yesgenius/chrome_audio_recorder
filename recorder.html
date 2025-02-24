@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Recorder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f0f0f0;
+    }
+    #status, #recordingInfo {
+      margin: 10px 0;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Audio Recorder</h1>
+  <div id="status">Checking recording capabilities...</div>
+  <div id="recordingInfo"></div>
+  <button id="recordButton" disabled>Запись</button>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+
+    const statusElement = document.getElementById('status');
+    const recordButton = document.getElementById('recordButton');
+    const recordingInfo = document.getElementById('recordingInfo');
+
+    // Check for recording capabilities
+    async function checkRecordingCapability() {
+      try {
+        // Request audio access with specific constraints
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            noiseSuppression: false,
+            echoCancellation: false,
+            autoGainControl: false
+          }
+        });
+
+        statusElement.textContent = 'Ready to record.';
+        recordButton.disabled = false;
+
+        // Display recording parameters
+        recordingInfo.innerHTML = `
+          <strong>Recording Parameters:</strong><br>
+          Audio Encoding: PCM (webm/opus as fallback)<br>
+          Sample Rate: 16000 Hz<br>
+          Bit Rate: 256 kbps<br>
+          Noise Suppression: false<br>
+          Echo Cancellation: false<br>
+          Auto Gain Control: false
+        `;
+
+        // Initialize MediaRecorder
+        mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'audio/webm',
+          audioBitsPerSecond: 256000 // 256 kbps
+        });
+
+        // Handle data availability
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+
+        // Handle recording stop
+        mediaRecorder.onstop = saveRecording;
+
+      } catch (error) {
+        // Display error and stop app
+        statusElement.textContent = `Recording not supported: ${error.message}`;
+        console.error('Error accessing media devices.', error);
+      }
+    }
+
+    // Start or stop recording
+    recordButton.addEventListener('click', () => {
+      if (!isRecording) {
+        // Start recording
+        audioChunks = [];
+        mediaRecorder.start();
+        isRecording = true;
+        recordButton.textContent = 'Стоп';
+        statusElement.textContent = 'Recording...';
+      } else {
+        // Stop recording
+        mediaRecorder.stop();
+        isRecording = false;
+        recordButton.textContent = 'Запись';
+        statusElement.textContent = 'Recording stopped.';
+      }
+    });
+
+    // Save recording to file
+    function saveRecording() {
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      const url = URL.createObjectURL(blob);
+
+      // Generate filename in YYYY-MM-DD_HHMMSS format
+      const now = new Date();
+      const filename = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_` +
+                       `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.webm`;
+
+      // Create download link
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.textContent = `Download ${filename}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // Initialize the app
+    checkRecordingCapability();
+  </script>
+</body>
+</html>
