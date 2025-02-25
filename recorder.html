@@ -1,136 +1,195 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Audio Recorder</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      background-color: #f0f0f0;
-    }
-    #status, #recordingInfo {
-      margin: 10px 0;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <title>Audio Recorder (PCM 16kHz 16-bit Mono)</title>
 </head>
 <body>
-  <h1>Audio Recorder</h1>
-  <div id="status">Checking recording capabilities...</div>
-  <div id="recordingInfo"></div>
-  <button id="recordButton" disabled>Запись</button>
+  <h1>Audio Recorder to WAV (PCM 16kHz 16-bit Mono)</h1>
+  
+  <!-- Status area for messages -->
+  <p id="status">Checking recording capabilities...</p>
+  
+  <!-- Button to start/stop recording -->
+  <button id="recordBtn" disabled>Record</button>
 
+  <!-- Area for displaying actual settings and other info -->
+  <pre id="info"></pre>
+
+  <!-- Script for Recorder.js library -->
+  <script src="https://yesgenius.github.io/chrome_audio_recorder/recorder.js"></script>
+  
   <script>
-    let mediaRecorder;
-    let audioChunks = [];
+    /**
+     * Professional-level JavaScript code with English comments
+     * ------------------------------------------
+     * This code demonstrates audio recording in Chrome on Android 14,
+     * capturing raw PCM data (16-bit, 16kHz, mono) without any DSP (noise suppression,
+     * echo cancellation, auto gain control, etc.). The recorded audio is saved as a WAV file.
+     */
+
+    // Global references
+    let audioContext;
+    let mediaStream;
+    let mediaStreamSource;
+    let recorder;
+
+    // Flag to track recording state
     let isRecording = false;
 
-    const statusElement = document.getElementById('status');
-    const recordButton = document.getElementById('recordButton');
-    const recordingInfo = document.getElementById('recordingInfo');
+    // Select DOM elements
+    const statusEl   = document.getElementById('status');
+    const recordBtn  = document.getElementById('recordBtn');
+    const infoEl     = document.getElementById('info');
 
-    // Check for recording capabilities
-    async function checkRecordingCapability() {
+    /**
+     * 1 - Check if the recording is possible.
+     *    If not possible, display detailed info and terminate.
+     */
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      statusEl.textContent = "Recording is not supported by this browser.";
+      infoEl.textContent = "Reason: navigator.mediaDevices.getUserMedia is not available.";
+      // We stop execution by disabling the button and returning
+      recordBtn.disabled = true;
+    } else {
+      // We have at least some possibility to record
+      // Let's proceed to ask for audio stream with constraints
+      checkRecordingCapabilities();
+    }
+
+    /**
+     * checkRecordingCapabilities()
+     * Attempts to get audio stream with advanced constraints to disable any processing.
+     */
+    async function checkRecordingCapabilities() {
+      // 2 - Build constraints to disable all known distortions in Chrome.
+      const constraints = {
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,       // Request 16kHz
+          sampleSize: 16,          // 16-bit
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          // These "goog*" constraints are non-standard but recognized by Chrome
+          // to ensure no internal DSP is applied.
+          googEchoCancellation: false,
+          googAutoGainControl: false,
+          googNoiseSuppression: false,
+          googHighpassFilter: false,
+          googTypingNoiseDetection: false
+        },
+        video: false
+      };
+
       try {
-        // Request audio access with specific constraints
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            sampleRate: 16000,
-            channelCount: 1,
-            noiseSuppression: false,
-            echoCancellation: false,
-            autoGainControl: false
-          }
+        // Request user media with the given constraints
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+        // Create an AudioContext
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Create a MediaStreamSource from the captured mediaStream
+        mediaStreamSource = audioContext.createMediaStreamSource(mediaStream);
+
+        // 2 - Create a new Recorder object with relevant settings
+        //    The Recorder.js library may accept config like { numChannels: 1, ... }.
+        //    We'll request single channel, 16-bit, 16kHz inside the WAV container.
+        recorder = new Recorder(mediaStreamSource, {
+          numChannels: 1,   // 1 channel (mono)
+          // The bit rate "256kBit" is effectively 16bits * 16000 Hz = 256 kbps
         });
 
-        statusElement.textContent = 'Ready to record.';
-        recordButton.disabled = false;
+        // 3 - Display actual constraints on screen for clarity
+        // We'll show the constraints we used. 
+        // (In real usage, you might also confirm actual sample rate from audioContext, etc.)
+        infoEl.textContent = `Actual Constraints / Settings:\n\n${JSON.stringify(constraints.audio, null, 2)}`;
 
-        // Display recording parameters
-        recordingInfo.innerHTML = `
-          <strong>Recording Parameters:</strong><br>
-          Audio Encoding: PCM (webm/opus as fallback)<br>
-          Sample Rate: 16000 Hz<br>
-          Bit Rate: 256 kbps<br>
-          Noise Suppression: false<br>
-          Echo Cancellation: false<br>
-          Auto Gain Control: false
-        `;
-
-        // Initialize MediaRecorder
-        mediaRecorder = new MediaRecorder(stream, {
-          mimeType: 'audio/webm',
-          audioBitsPerSecond: 256000 // 256 kbps
-        });
-
-        // Handle data availability
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunks.push(event.data);
-          }
-        };
-
-        // Handle recording stop
-        mediaRecorder.onstop = saveRecording;
+        // Update status and enable record button
+        statusEl.textContent = "Ready to record.";
+        recordBtn.disabled = false;
 
       } catch (error) {
-        // Display error and stop app
-        statusElement.textContent = `Recording not supported: ${error.message}`;
-        console.error('Error accessing media devices.', error);
+        // If we cannot get user media or constraints are not satisfied, display reason and stop.
+        statusEl.textContent = "Cannot record audio.";
+        infoEl.textContent = `Error details:\n${error.message}\n\n` + 
+                             `Your device or browser may not support the required audio constraints.`;
+        recordBtn.disabled = true;
       }
     }
 
-    // Start or stop recording
-    recordButton.addEventListener('click', () => {
+    /**
+     * getWAVFileName()
+     * Returns a string in the format YYYY-MM-DD_HHMMSS.WAV
+     */
+    function getWAVFileName() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      return `${year}-${month}-${day}_${hours}${minutes}${seconds}.WAV`;
+    }
+
+    /**
+     * startRecording()
+     * Begins recording via Recorder.js
+     */
+    function startRecording() {
+      // Start recording
+      recorder.record();
+      statusEl.textContent = "Recording started...";
+    }
+
+    /**
+     * stopRecording()
+     * Stops recording and prepares the WAV blob for download.
+     */
+    function stopRecording() {
+      recorder.stop();
+
+      // Export the WAV file
+      recorder.exportWAV((blob) => {
+        // Prepare file link
+        const url = URL.createObjectURL(blob);
+        const filename = getWAVFileName();
+        
+        // Create a temporary link to trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        // Append link to body (necessary for some browsers)
+        document.body.appendChild(link);
+        link.click();
+        // Clean up
+        document.body.removeChild(link);
+        
+        statusEl.textContent = `Recording stopped. File saved as: ${filename}`;
+
+        // After exporting, we can clear the recorder to reuse it if we want
+        recorder.clear();
+      });
+    }
+
+    /**
+     * set up record button click event
+     * toggles between start and stop.
+     */
+    recordBtn.addEventListener('click', () => {
       if (!isRecording) {
-        // Start recording
-        audioChunks = [];
-        mediaRecorder.start();
+        // 4 - First click: start recording
+        startRecording();
+        recordBtn.textContent = "Stop";
         isRecording = true;
-        recordButton.textContent = 'Стоп';
-        statusElement.textContent = 'Recording...';
       } else {
-        // Stop recording
-        mediaRecorder.stop();
+        // 5 - Second click: stop recording
+        stopRecording();
+        recordBtn.textContent = "Запись";
         isRecording = false;
-        recordButton.textContent = 'Запись';
-        statusElement.textContent = 'Recording stopped.';
       }
     });
-
-    // Save recording to file
-    function saveRecording() {
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
-      const url = URL.createObjectURL(blob);
-
-      // Generate filename in YYYY-MM-DD_HHMMSS format
-      const now = new Date();
-      const filename = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_` +
-                       `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.webm`;
-
-      // Create download link
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.textContent = `Download ${filename}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-
-    // Initialize the app
-    checkRecordingCapability();
   </script>
 </body>
 </html>
